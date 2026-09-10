@@ -20,7 +20,6 @@ import org.junit.jupiter.api.Test;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
-import static org.junit.jupiter.api.Assertions.fail;
 
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
@@ -29,20 +28,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import io.helidon.metrics.api.Counter;
 import io.helidon.metrics.api.Meter;
 import io.helidon.metrics.api.MeterRegistry;
-import io.helidon.metrics.api.Tag;
-import io.helidon.metrics.api.Timer;
+import io.helidon.metrics.api.MetricsFactory;
 import io.helidon.service.registry.Services;
 
 import com.oracle.bmc.monitoring.model.MetricDataDetails;
 
 class OciMetricsDataTest {
     private final OciMetricsSupport.NameFormatter nameFormatter = new OciMetricsSupport.NameFormatter() { };
-    private final String dimensionScopeName = "scope";
 
     private final MeterRegistry meterRegistry = Services.get(MeterRegistry.class);
+    private final MetricsFactory metricsFactory = Services.get(MetricsFactory.class);
 
 
 
@@ -53,32 +50,23 @@ class OciMetricsDataTest {
     }
 
     @Test
-    void testMetricRegistries() {
+    void testUnscopedMetricRegistries() {
         String counterName = "DummyCounter";
         String timerName = "DummyTimer";
 
-        meterRegistry.getOrCreate(Counter.builder(counterName)
-                                          .scope(Meter.Scope.BASE))
+        meterRegistry.getOrCreate(metricsFactory.counterBuilder(counterName))
                 .increment();
         int counterMetricCount = 1;
-        meterRegistry.getOrCreate(Timer.builder(timerName)
-                                          .scope(Meter.Scope.APPLICATION))
+        meterRegistry.getOrCreate(metricsFactory.timerBuilder(timerName))
                 .record(Duration.of(100, ChronoUnit.MILLIS));
         int timerMetricCount = 3;
         int totalMetricCount = counterMetricCount + timerMetricCount;
         OciMetricsData ociMetricsData = new OciMetricsData(
-                Meter.Scope.BUILT_IN_SCOPES, nameFormatter, "compartmentId", "namespace", "resourceGroup", false);
+                nameFormatter, "compartmentId", "namespace", "resourceGroup", false);
         List<MetricDataDetails> allMetricDataDetails = ociMetricsData.getMetricDataDetails();
-        allMetricDataDetails.stream().forEach((c) -> {
-            if (c.getName().contains(counterName)) {
-                assertThat(c.getDimensions().get(dimensionScopeName), is(equalTo(Meter.Scope.BASE)));
-            } else if (c.getName().contains(timerName)) {
-                assertThat(c.getDimensions().get(dimensionScopeName), is(equalTo(Meter.Scope.APPLICATION)));
-            }
-            else {
-                fail("Unknown metric: " + c.getName());
-            }
-        });
+        allMetricDataDetails.forEach(metricDataDetails -> assertThat(metricDataDetails.getName(),
+                                                                    anyOf(containsString(counterName),
+                                                                          containsString(timerName))));
         assertThat(allMetricDataDetails.size(), is(equalTo(totalMetricCount)));
     }
 
@@ -88,12 +76,11 @@ class OciMetricsDataTest {
         String namespace = "dummy-namespace";
         String resourceGroup = "dummy_resourceGroup";
 
-        meterRegistry.getOrCreate(Counter.builder("dummy.counter")
-                                          .scope(Meter.Scope.BASE))
+        meterRegistry.getOrCreate(metricsFactory.counterBuilder("dummy.counter"))
                 .increment();
 
         OciMetricsData ociMetricsData = new OciMetricsData(
-                Set.of(Meter.Scope.BASE), nameFormatter, compartmentId, namespace, resourceGroup, false);
+                nameFormatter, compartmentId, namespace, resourceGroup, false);
         List<MetricDataDetails> allMetricDataDetails = ociMetricsData.getMetricDataDetails();
         MetricDataDetails metricDataDetails = allMetricDataDetails.get(0);
         assertThat(metricDataDetails.getCompartmentId(), is(equalTo(compartmentId)));
@@ -106,16 +93,15 @@ class OciMetricsDataTest {
         String dummyTagName = "DummyTag";
         String dummyTagValue = "DummyValue";
 
-        meterRegistry.getOrCreate(Counter.builder("dummy.counter")
-                                          .scope(Meter.Scope.BASE)
-                                          .tags(Set.of(Tag.create(dummyTagName, dummyTagValue))))
+        meterRegistry.getOrCreate(metricsFactory.counterBuilder("dummy.counter")
+                                          .tags(Set.of(metricsFactory.tagCreate(dummyTagName, dummyTagValue))))
                         .increment();
         OciMetricsData ociMetricsData = new OciMetricsData(
-                Set.of(Meter.Scope.BASE), nameFormatter, "compartmentId", "namespace", "resourceGroup", false);
+                nameFormatter, "compartmentId", "namespace", "resourceGroup", false);
         List<MetricDataDetails> allMetricDataDetails = ociMetricsData.getMetricDataDetails();
         MetricDataDetails metricDataDetails = allMetricDataDetails.get(0);
         Map<String, String> dimensions = metricDataDetails.getDimensions();
-        assertThat(dimensions.get(dimensionScopeName), is(equalTo(Meter.Scope.BASE)));
+        assertThat(dimensions, not(hasKey("scope")));
         assertThat(dimensions.get(dummyTagName), is(equalTo(dummyTagValue)));
     }
 }

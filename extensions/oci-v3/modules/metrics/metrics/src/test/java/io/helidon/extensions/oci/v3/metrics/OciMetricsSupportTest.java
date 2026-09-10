@@ -26,8 +26,8 @@ import java.util.stream.Stream;
 import io.helidon.config.Config;
 import io.helidon.config.ConfigSources;
 import io.helidon.metrics.api.Counter;
-import io.helidon.metrics.api.Meter;
 import io.helidon.metrics.api.MeterRegistry;
+import io.helidon.metrics.api.MetricsFactory;
 import io.helidon.service.registry.Services;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.http.HttpRouting;
@@ -46,6 +46,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.startsWith;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doAnswer;
@@ -60,6 +61,7 @@ class OciMetricsSupportTest {
     private static String endPoint = "https://telemetry.DummyEndpoint.com";
     private static String postingEndPoint;
     private static final MeterRegistry meterRegistry = Services.get(MeterRegistry.class);
+    private static final MetricsFactory metricsFactory = Services.get(MetricsFactory.class);
 
     @BeforeAll
     static void mockSetGetEndpoints() {
@@ -83,8 +85,7 @@ class OciMetricsSupportTest {
 
     @Test
     void testMetricUpdate() throws InterruptedException {
-        Counter counter = meterRegistry.getOrCreate(Counter.builder("DummyCounter")
-                                                            .scope(Meter.Scope.BASE));
+        Counter counter = meterRegistry.getOrCreate(metricsFactory.counterBuilder("DummyCounter"));
 
         CountDownLatch countDownLatch = new CountDownLatch(1);
         noOfExecutions = 0;
@@ -140,12 +141,9 @@ class OciMetricsSupportTest {
     void testEndpoint() throws InterruptedException {
         String originalEndPoint = endPoint;
 
-        meterRegistry.getOrCreate(Counter.builder("baseDummyCounter1")
-                                          .scope(Meter.Scope.BASE)).increment();
-        meterRegistry.getOrCreate(Counter.builder("vendorDummyCounter1")
-                                          .scope(Meter.Scope.VENDOR)).increment();
-        meterRegistry.getOrCreate(Counter.builder("appDummyCounter1")
-                                          .scope(Meter.Scope.APPLICATION)).increment();;
+        meterRegistry.getOrCreate(metricsFactory.counterBuilder("baseDummyCounter1")).increment();
+        meterRegistry.getOrCreate(metricsFactory.counterBuilder("vendorDummyCounter1")).increment();
+        meterRegistry.getOrCreate(metricsFactory.counterBuilder("appDummyCounter1")).increment();
 
         CountDownLatch countDownLatch = new CountDownLatch(1);
         noOfExecutions = 0;
@@ -206,29 +204,25 @@ class OciMetricsSupportTest {
         Stream.of("baseDummyCounter1",
                   "baseDummyCounter2",
                   "baseDummyCounter3")
-                .forEach(name -> meterRegistry.getOrCreate(Counter.builder(name)
-                                                                   .scope(Meter.Scope.BASE)).increment());
+                .forEach(name -> meterRegistry.getOrCreate(metricsFactory.counterBuilder(name)).increment());
         Stream.of("vendorDummyCounter1",
                   "vendorDummyCounter2",
                   "vendorDummyCounter3")
-                .forEach(name -> meterRegistry.getOrCreate(Counter.builder(name)
-                                                                   .scope(Meter.Scope.VENDOR)).increment());
+                .forEach(name -> meterRegistry.getOrCreate(metricsFactory.counterBuilder(name)).increment());
         Stream.of("appDummyCounter1",
                   "appDummyCounter2",
                   "appDummyCounter3",
                   "appDummyCounter4")
-                .forEach(name -> meterRegistry.getOrCreate(Counter.builder(name)
-                                                                   .scope(Meter.Scope.APPLICATION)).increment());
+                .forEach(name -> meterRegistry.getOrCreate(metricsFactory.counterBuilder(name)).increment());
 
         Stream.of("appDummyCounter1",
                   "appDummyCounter2",
                   "appDummyCounter3",
                   "appDummyCounter4")
-                        .forEach(name -> meterRegistry.getOrCreate(Counter.builder(name)
-                                                                           .scope(Meter.Scope.APPLICATION)).increment());
+                        .forEach(name -> meterRegistry.getOrCreate(metricsFactory.counterBuilder(name)).increment());
 
         // Should be 10 metrics
-        int totalMetrics = meterRegistry.meters().size(); // gets all scopes
+        int totalMetrics = meterRegistry.meters().size();
 
         int batchSize = 3;
         long batchDelay = 100L;
@@ -293,66 +287,47 @@ class OciMetricsSupportTest {
     }
 
     @Test
-    void testConfigSources() {
-        meterRegistry.getOrCreate(Counter.builder("baseDummyCounter1")
-                                          .scope(Meter.Scope.BASE)).increment();
+    void testLegacyScopesConfigIsIgnored() {
+        meterRegistry.getOrCreate(metricsFactory.counterBuilder("baseDummyCounter1")).increment();
 
         Stream.of("vendorDummyCounter1",
                   "vendorDummyCounter2")
-                .forEach(name -> meterRegistry.getOrCreate(Counter.builder(name)
-                                                                   .scope(Meter.Scope.VENDOR)).increment());
+                .forEach(name -> meterRegistry.getOrCreate(metricsFactory.counterBuilder(name)).increment());
         Stream.of("appDummyCounter1",
                   "appDummyCounter2",
                   "appDummyCounter3")
-                .forEach(name -> meterRegistry.getOrCreate(Counter.builder(name)
-                                                                   .scope(Meter.Scope.APPLICATION)).increment());
+                .forEach(name -> meterRegistry.getOrCreate(metricsFactory.counterBuilder(name)).increment());
 
-        validateMetricCount("base, vendor, application", 6);
-        validateMetricCount("base", 1);
-        validateMetricCount("vendor", 2);
-        validateMetricCount("application", 3);
-        validateMetricCount("base, vendor", 3);
+        validateMetricCountWithLegacyScopesConfig("base", 6);
     }
 
     @Test
-    void testMetricScope() {
-        meterRegistry.getOrCreate(Counter.builder("baseDummyCounter1")
-                                          .scope(Meter.Scope.BASE))
+    @SuppressWarnings("removal")
+    void testLegacyScopesBuilderMethodIsIgnored() {
+        meterRegistry.getOrCreate(metricsFactory.counterBuilder("baseDummyCounter1"))
                 .increment();
 
         Stream.of("vendorDummyCounter1",
                   "vendorDummyCounter2")
-                .forEach(name -> meterRegistry.getOrCreate(Counter.builder(name)
-                                                                   .scope(Meter.Scope.VENDOR))
+                .forEach(name -> meterRegistry.getOrCreate(metricsFactory.counterBuilder(name))
                         .increment());
 
         Stream.of("appDummyCounter1",
                   "appDummyCounter2",
                   "appDummyCounter3")
-                .forEach(name -> meterRegistry.getOrCreate(Counter.builder(name)
-                                                                   .scope(Meter.Scope.APPLICATION))
+                .forEach(name -> meterRegistry.getOrCreate(metricsFactory.counterBuilder(name))
                         .increment());
 
-
-        validateMetricCount(new String[] {}, 6);
-        validateMetricCount(new String[] {Meter.Scope.BASE, Meter.Scope.VENDOR, Meter.Scope.APPLICATION}, 6);
-        validateMetricCount(new String[] {Meter.Scope.BASE}, 1);
-        validateMetricCount(new String[] {Meter.Scope.VENDOR}, 2);
-        validateMetricCount(new String[] {Meter.Scope.APPLICATION}, 3);
-        validateMetricCount(new String[] {"base", "vendor", "application"}, 6);
-        validateMetricCount(new String[] {"base"}, 1);
-        validateMetricCount(new String[] {"vendor"}, 2);
-        validateMetricCount(new String[] {"application"}, 3);
+        validateMetricCount(new String[] {"base"}, 6);
+        assertThrows(NullPointerException.class, () -> OciMetricsSupport.builder().scopes(null));
+        assertThrows(NullPointerException.class, () -> OciMetricsSupport.builder().scopes(new String[] {null}));
     }
 
     @Test
     void testDisableMetrics() {
-        meterRegistry.getOrCreate(Counter.builder("baseDummyCounter1")
-                                          .scope(Meter.Scope.BASE)).increment();
-        meterRegistry.getOrCreate(Counter.builder("vendorDummyCounter1")
-                                          .scope(Meter.Scope.VENDOR)).increment();
-        meterRegistry.getOrCreate(Counter.builder("appDummyCounter1")
-                                          .scope(Meter.Scope.APPLICATION)).increment();
+        meterRegistry.getOrCreate(metricsFactory.counterBuilder("baseDummyCounter1")).increment();
+        meterRegistry.getOrCreate(metricsFactory.counterBuilder("vendorDummyCounter1")).increment();
+        meterRegistry.getOrCreate(metricsFactory.counterBuilder("appDummyCounter1")).increment();
 
         OciMetricsSupport.Builder ociMetricsSupportBuilder = OciMetricsSupport.builder()
                 .namespace("namespace")
@@ -406,7 +381,7 @@ class OciMetricsSupportTest {
                 .register(ociMetricsSupportBuilder);
     }
 
-    private void validateMetricCount(String scopesList, int expectedMetricCount) {
+    private void validateMetricCountWithLegacyScopesConfig(String scopesList, int expectedMetricCount) {
         Config config = Config.just(ConfigSources.create(Map.of(
                 "compartmentId", "compartmentId",
                 "namespace", "namespace",
@@ -423,6 +398,7 @@ class OciMetricsSupportTest {
         validateMetricCount(ociMetricsSupportBuilder, expectedMetricCount);
     }
 
+    @SuppressWarnings("removal")
     private void validateMetricCount(String[] scopes, int expectedMetricCount) {
         OciMetricsSupport.Builder ociMetricsSupportBuilder = OciMetricsSupport.builder()
                 .namespace("namespace")

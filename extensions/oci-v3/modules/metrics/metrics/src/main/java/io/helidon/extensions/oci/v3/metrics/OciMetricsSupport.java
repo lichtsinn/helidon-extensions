@@ -15,13 +15,10 @@
  */
 package io.helidon.extensions.oci.v3.metrics;
 
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -67,7 +64,6 @@ public class OciMetricsSupport implements HttpService {
     private final TimeUnit schedulingTimeUnit;
     private final String resourceGroup;
     private final boolean descriptionEnabled;
-    private final Set<String> scopes;
     private final int batchSize;
     private final boolean enabled;
 
@@ -84,7 +80,6 @@ public class OciMetricsSupport implements HttpService {
         nameFormatter = builder.nameFormatter;
         resourceGroup = builder.resourceGroup;
         descriptionEnabled = builder.descriptionEnabled;
-        scopes = builder.scopes;
         batchSize = builder.batchSize;
         enabled = builder.enabled;
         this.monitoringClient = builder.monitoringClient;
@@ -261,15 +256,10 @@ public class OciMetricsSupport implements HttpService {
             return;
         }
 
-        if (scopes.isEmpty()) {
-            LOGGER.log(System.Logger.Level.INFO, "No selected metric scopes to push to OCI");
-            return;
-        }
-
         LOGGER.log(System.Logger.Level.TRACE, "Starting OCI Metrics agent");
 
         ociMetricsData = new OciMetricsData(
-                scopes, nameFormatter, compartmentId, namespace, resourceGroup, descriptionEnabled);
+                nameFormatter, compartmentId, namespace, resourceGroup, descriptionEnabled);
         startExecutor();
     }
 
@@ -302,7 +292,6 @@ public class OciMetricsSupport implements HttpService {
         private String namespace;
         private NameFormatter nameFormatter = DEFAULT_NAME_FORMATTER;
         private String resourceGroup;
-        private Set<String> scopes = Meter.Scope.BUILT_IN_SCOPES;
         private boolean descriptionEnabled = true;
         private int batchSize = DEFAULT_BATCH_SIZE;
         private boolean enabled = true;
@@ -447,31 +436,17 @@ public class OciMetricsSupport implements HttpService {
         }
 
         /**
-         * Sets which metrics scopes (e.g., base, vendor, application) should be sent to OCI.
-         * <p>
-         *     If this method is never invoked, defaults to all scopes.
-         * </p>
+         * No-op retained for compatibility; all metrics are sent to OCI.
          *
-         * @param value array of metric scopes to process
+         * @param value ignored; neither the array nor any element can be {@code null}
          * @return updated builder
+         * @deprecated Core metrics does not assign scopes, and this method will be removed.
          */
-        @ConfiguredOption(value = "All scopes")
+        @Deprecated(forRemoval = true, since = "27.0.0")
         public Builder scopes(String[] value) {
             Objects.requireNonNull(value);
-
-            return scopes(Arrays.asList(value));
-        }
-
-        private Builder scopes(List<String> value) {
-            if (value == null || value.isEmpty()) {
-                this.scopes = Meter.Scope.BUILT_IN_SCOPES;
-            } else {
-                Set<String> convertedScope = new HashSet<>();
-                for (String element: value) {
-                    String scopeItem = element.toLowerCase(Locale.ROOT).trim();
-                    convertedScope.add(scopeItem);
-                }
-                this.scopes = convertedScope;
+            for (String scope : value) {
+                Objects.requireNonNull(scope);
             }
             return this;
         }
@@ -516,7 +491,6 @@ public class OciMetricsSupport implements HttpService {
             config.get("compartmentId").asString().ifPresent(this::compartmentId);
             config.get("namespace").asString().ifPresent(this::namespace);
             config.get("resourceGroup").asString().ifPresent(this::resourceGroup);
-            config.get("scopes").asList(String.class).ifPresent(this::scopes);
             config.get("batchSize").asInt().ifPresent(this::batchSize);
             config.get("enabled").asBoolean().ifPresent(this::enabled);
             config.get("descriptionEnabled").asBoolean().ifPresent(this::descriptionEnabled);
